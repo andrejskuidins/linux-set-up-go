@@ -10,24 +10,34 @@ import (
 	"os"
 )
 
+const MERCHANT_URL string = "http://127.0.0.1:5000/merchants"
+
 type HealthCheck struct {
-	Status string `json:"status"`
+	Status string `json:list`
 }
 
 func main() {
-	res, err := http.Get("https://simpledebit.gocardless.io/health_check")
+	// Make an HTTP GET request to the merchant URL
+	res, err := http.Get(MERCHANT_URL)
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer res.Body.Close() // Ensure the response body is closed
+
+	// Read the response body
 	body, err := io.ReadAll(res.Body)
-
-	res.Body.Close()
-
-	var health HealthCheck
-	if err := json.Unmarshal(body, &health); err != nil {
+	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(health.Status) // This will print "ok"
+
+	// Parse the JSON response (which is an array of strings)
+	var merchants []string
+	if err := json.Unmarshal(body, &merchants); err != nil {
+		log.Fatal(err)
+	}
+
+	// Print the list of merchants
+	fmt.Println("Merchants:", merchants)
 
 	if res.StatusCode == 200 {
 		fmt.Println("SUCCESS")
