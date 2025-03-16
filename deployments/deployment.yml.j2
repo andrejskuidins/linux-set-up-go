@@ -1,0 +1,59 @@
+environment: {{ .DEPLOYMENT_REPO_NAME }}
+pipelines:
+  - name: tf-proxy
+    needs: []
+    manual: true
+    project: 1nce-tech/platform/research/bong-meta-proxy-pipeline/terraform
+    ref: {{ .TERRAFORM_REPO_TAG }}
+    variables:
+      GTP_PROXY: {{ .PROXY_REPO_TAG }}
+      DEPLOYMENT_REPO_TAG: {{ .DEPLOYMENT_REPO_TAG }}
+      DEPLOYMENT: {{ .DEPLOYMENT_REPO_NAME }}
+      CONFIG_PATH: {{ .CONFIG_PATH }}
+      S3_KEY: "tfstate/platform/terraform.tfstate"
+  - name: tf-proxy-ta
+    needs: []
+    manual: true
+    project: 1nce-tech/platform/research/bong-meta-proxy-pipeline/traffic-accumulator
+    ref: {{ .TA_REPO_TAG }}
+    variables:
+      DEPLOYMENT_REPO_TAG: {{ .DEPLOYMENT_REPO_TAG }}
+      DEPLOYMENT: {{ .DEPLOYMENT_REPO_NAME }}
+      CONFIG_PATH: {{ .CONFIG_PATH }}
+      S3_KEY: "tfstate/platform/ta.tfstate"
+  - name: tf-proxy-alerts
+    needs: []
+    manual: true
+    project: 1nce-tech/platform/research/bong-meta-proxy-pipeline/alerts
+    ref: {{ .ALERTS_REPO_TAG }}
+    variables:
+      DEPLOYMENT_REPO_TAG: {{ .DEPLOYMENT_REPO_TAG }}
+      DEPLOYMENT: {{ .DEPLOYMENT_REPO_NAME }}
+      CONFIG_PATH: {{ .CONFIG_PATH }}
+      S3_KEY: "tfstate/platform/alerts.tfstate"
+  - name: tf-dstest
+    needs: []
+    manual: true
+    project: 1nce-tech/platform/research/bong-meta-proxy-pipeline/dstest
+    ref: {{ .DSTEST_REPO_TAG }}
+    variables:
+      S3_KEY: "tfstate/platform/dstest.tfstate"
+  - name: reg-service
+    needs: tf-proxy
+    manual: true
+    project: 1nce-tech/gtp-proxy-serveless-pgw/infra/proxy/gtp-registration-service
+    ref: {{ .REG_SVC_REPO_TAG }}
+    variables:
+      S3_KEY: "tfstate/platform/gtp-registration-service.tfstate"
+variables:
+  AWS_REGION: {{ .DEPLOYMENT_REGION }}-1
+  DEPLOYMENT_ROLE: arn:aws:iam::{{ .GTP_PROXY_ACCOUNT_ID }}:role/Deployer
+  ENVIRONMENT_NAME: {{ .DEPLOYMENT_REPO_NAME }}
+  TF_VAR_stage: {{ .DEPLOYMENT_REPO_NAME }}
+  TF_VAR_environment: {{ .DEPLOYMENT_REPO_NAME }}
+  TF_VAR_name_prefix: "{{ .DEPLOYMENT_REPO_NAME }}-tfstate-{{ .DEPLOYMENT_REGION }}-1"
+  S3_BUCKET: ${TF_VAR_name_prefix}-state
+  LOCK_TABLE: ${TF_VAR_name_prefix}-state-lock
+  TFLINT_CONFIG_FILE: ".tflint.hcl"
+  TFLINT_ARGS: "--module"
+  TFSEC_ARGS: "-m HIGH --concise-output"

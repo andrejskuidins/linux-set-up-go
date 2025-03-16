@@ -1,0 +1,16 @@
+---
+deployments:
+  eucedev1:
+    version: "v0.0.1"
+    account: "020367019464"
+    region: "eu-central"
+  eucestg1:
+    version: "v0.0.2"
+    account: "070879619486"
+    region: "eu-central"
+  useaprd1:
+    version: "v0.0.3"
+    account: "594169544949"
+    region: "us-east"
+
+terraform: "v0.0.1"
