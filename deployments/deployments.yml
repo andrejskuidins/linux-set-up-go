@@ -2,15 +2,15 @@
 deployments:
   eucedev1:
     version: "v0.0.1"
-    account: "020367019464"
+    account: "000344419000"
     region: "eu-central"
   eucestg1:
     version: "v0.0.2"
-    account: "070879619486"
+    account: "111855519000"
     region: "eu-central"
   useaprd1:
     version: "v0.0.3"
-    account: "594169544949"
+    account: "222166644000"
     region: "us-east"
 
 terraform: "v0.0.1"
