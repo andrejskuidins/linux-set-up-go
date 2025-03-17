@@ -13,14 +13,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const GITLAB_PATH_URL string = "https://gitlab.com/api/v4/projects/1nce-tech%2Fplatform%2Fresearch%2Fbong-meta-proxy-pipeline%2Fdeployments%2F"
-const DEPLOYMENT_TEMPLATE string = "deployment.yml.j2"
+const (
+	gitlabPathURL      = "https://gitlab.com/api/v4/projects/1nce-tech%2Fplatform%2Fresearch%2Fbong-meta-proxy-pipeline%2Fdeployments%2F"
+	deploymentTemplate = "deployment.yml.j2"
+	dstestRepoTag      = "v0.6.2"
+	regSvcRepoTag      = "v5.3.4"
+	defaultTimeout     = 10 * time.Second
+)
 
-// Temporary solution for dstest and regsvc
-const DSTEST_REPO_TAG string = "v0.6.2"
-const REG_SVC_REPO_TAG string = "v5.3.4"
-
-// Define a struct to match the YAML structure
 type Config struct {
 	Deployments map[string]Deployment `yaml:"deployments"`
 	Terraform   string                `yaml:"terraform"`
@@ -56,12 +56,12 @@ type Gtpproxy struct {
 func loadConfig(filePath string) (Config, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to read YAML file %s: %v", filePath, err)
+		return Config{}, fmt.Errorf("failed to read YAML file %s: %w", filePath, err)
 	}
 
 	var config Config
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		return Config{}, fmt.Errorf("failed to parse YAML from %s: %v", filePath, err)
+		return Config{}, fmt.Errorf("failed to parse YAML from %s: %w", filePath, err)
 	}
 
 	return config, nil
@@ -80,48 +80,77 @@ func getEnvType(key string) string {
 	}
 }
 
+func fetchProxyConfig(url, token string) (*Gtpproxy, error) {
+	client := &http.Client{Timeout: defaultTimeout}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make HTTP request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var gtpproxy Gtpproxy
+	if err := yaml.Unmarshal(body, &gtpproxy); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	return &gtpproxy, nil
+}
+
+func createDeploymentFile(envType, key string, config DeploymentTemplate) error {
+	if err := os.MkdirAll(envType, 0750); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	path := fmt.Sprintf("%s/%s.yml", envType, key)
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer file.Close()
+
+	t, err := template.ParseFiles(deploymentTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse template: %w", err)
+	}
+
+	if err := t.Execute(file, config); err != nil {
+		return fmt.Errorf("failed to execute template: %w", err)
+	}
+
+	return nil
+}
+
 func main() {
 	if len(os.Args) != 3 {
 		log.Fatalf("Error: Invalid number of arguments.\nUsage: go run gitlab_parse.go <config-file> <gitlab-token>\nExample: go run gitlab_parse.go deployments.yml $GITLAB_TOKEN")
 	}
 
-	// Read the YAML file
-	config, err := loadConfig(os.Args[1])
+	configFile := os.Args[1]
+	gitlabToken := os.Args[2]
+
+	config, err := loadConfig(configFile)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Access the parsed data
 	for key, value := range config.Deployments {
 		fmt.Printf("Key: %s, Ver: %s, Acc: %s, Reg: %s\n", key, value.Version, value.Account, value.Region)
 
-		var envType string
-		envType = getEnvType(key)
-		// Compose the URL using fmt.Sprintf
-		url := fmt.Sprintf("%s%s%%2F%s/repository/files/proxy.yml/raw?ref=%s&private_token=%s", GITLAB_PATH_URL, envType, key, value.Version, os.Args[2])
+		envType := getEnvType(key)
+		url := fmt.Sprintf("%s%s%%2F%s/repository/files/proxy.yml/raw?ref=%s&private_token=%s", gitlabPathURL, envType, key, value.Version, gitlabToken)
 
-		// Make the HTTP GET request
-		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Get(url)
+		gtpproxy, err := fetchProxyConfig(url, gitlabToken)
 		if err != nil {
-			log.Printf("Failed to make HTTP request: %v\n", err)
+			log.Printf("Failed to fetch proxy config: %v\n", err)
 			continue
 		}
-		defer resp.Body.Close()
 
-		// Handle the response (e.g., read the body)
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			log.Printf("Failed to read response body: %v\n", err)
-			continue
-		}
-		var gtpproxy Gtpproxy
-		err = yaml.Unmarshal(body, &gtpproxy)
-		if err != nil {
-			log.Fatalf("Failed to parse YAML: %v", err)
-		}
-
-		config := DeploymentTemplate{
+		deploymentConfig := DeploymentTemplate{
 			DEPLOYMENT_REPO_NAME: key,
 			TERRAFORM_REPO_TAG:   config.Terraform,
 			PROXY_REPO_TAG:       gtpproxy.Gtpproxy,
@@ -131,34 +160,12 @@ func main() {
 			ALERTS_REPO_TAG:      gtpproxy.Alerts,
 			DEPLOYMENT_REGION:    value.Region,
 			GTP_PROXY_ACCOUNT_ID: value.Account,
-			DSTEST_REPO_TAG:      DSTEST_REPO_TAG,
-			REG_SVC_REPO_TAG:     REG_SVC_REPO_TAG,
+			DSTEST_REPO_TAG:      dstestRepoTag,
+			REG_SVC_REPO_TAG:     regSvcRepoTag,
 		}
 
-		// Load and execute the template
-		t, err := template.ParseFiles(DEPLOYMENT_TEMPLATE)
-		if err != nil {
-			log.Fatalf("Failed to parse template: %v", err)
-		}
-
-		err = os.MkdirAll(envType, 0750)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// Create the file path
-		path := fmt.Sprintf("%s/%s.yml", envType, key)
-
-		// Create the file
-		file, err := os.Create(path)
-		if err != nil {
-			log.Fatalf("Failed to create file: %v", err)
-		}
-		defer file.Close()
-
-		err = t.Execute(file, config)
-		if err != nil {
-			log.Fatalf("Failed to execute template: %v", err)
+		if err := createDeploymentFile(envType, key, deploymentConfig); err != nil {
+			log.Fatalf("Failed to create deployment file: %v", err)
 		}
 	}
 }
